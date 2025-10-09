@@ -1,0 +1,31 @@
+train_data:
+  period_length: 30
+  identifier: TRAIN
+  psg_regex: .*[.]h5
+  hyp_regex: .*[.]ids
+
+val_data:
+  period_length: 30
+  identifier: VAL
+  psg_regex: .*[.]h5
+  hyp_regex: .*[.]ids
+
+
+set_sample_rate: 64.0
+
+channel_sampling_groups: [['ACCELEROMETER_magnitude'], ['ACCELEROMETER_magnitude_derivative']]
+
+sleep_stage_annotations:
+  W: 0
+  N1: 1
+  N2: 1
+  N3: 1
+  REM: 1
+  UNKNOWN: 2
+
+strip_func:
+  strip_func: strip_to_match
+
+scaler: RobustScaler
+
+batch_wise_scaling: false

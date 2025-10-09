@@ -1,0 +1,13 @@
+channel_sampling_groups: [[ACCELEROMETER_magnitude], [ACCELEROMETER_magnitude_derivative]]
+train_data:
+  data_dir: processed_data.h5
+  period_length: 30.0
+  time_unit: SECOND
+  identifier: TRAIN
+
+val_data:
+  data_dir: processed_data.h5
+  period_length: 30.0
+  time_unit: SECOND
+  identifier: VAL
+
