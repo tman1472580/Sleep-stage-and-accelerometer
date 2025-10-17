@@ -77,11 +77,38 @@ class SleepScorer:
         print(f"[init] input_shape={self.model_input_shape} | model_sr={self.model_sample_rate} Hz")
         print(f"[init] period_duration={self.period_duration}s | model_periods={self.model_periods}")
 
-        # Set labels - infer from model output shape during first prediction
-        # For now assume 2-class model (Wake/Sleep) based on verification
-        self.n_output_classes = 2
-        self.labels = np.array(["Wake", "Sleep"], dtype=object)
-        print(f"[init] Assuming 2-class model: {list(self.labels)}")
+        # ============ CRITICAL: Detect actual number of output classes ============
+        print(f"[init] *** DETECTING OUTPUT CLASSES ***")
+        try:
+            test_data = Data(
+                array=np.random.randn(64 * 30 * self.model_periods, 2),
+                sample_rate=64,
+                channel_names=['magnitude', 'magnitude_derivative']
+            )
+            print(f"[init] Running test prediction with shape: {test_data.array.shape}")
+            test_pred = score(
+                data=test_data,
+                model=self.model,
+                channel_groups=[[0, 1]],
+                arg_max=False
+            )
+            print(f"[init] Test prediction output shape: {test_pred.array.shape}")
+            self.n_output_classes = test_pred.array.shape[1] if len(test_pred.array.shape) > 1 else 2
+            print(f"[init] ✓ DETECTED {self.n_output_classes} OUTPUT CLASSES")
+        except Exception as e:
+            print(f"[init] ✗ Could not run test prediction: {e}")
+            print(f"[init] Defaulting to 2 classes")
+            self.n_output_classes = 2
+
+        # ============ Set labels based on actual output classes ============
+        if self.n_output_classes == 2:
+            self.labels = np.array(["Wake", "Sleep"], dtype=object)
+        elif self.n_output_classes == 3:
+            self.labels = np.array(["Wake", "NREM", "REM"], dtype=object)
+        else:
+            self.labels = np.array([f"Class_{i}" for i in range(self.n_output_classes)], dtype=object)
+
+        print(f"[init] *** FINAL LABELS: {list(self.labels)} ***")
 
         required_seconds = self.min_periods_for_first_pred * self.period_duration
         self.target_total_samples = int(np.ceil(required_seconds * FRONTEND_SAMPLING_RATE))
@@ -149,28 +176,16 @@ class SleepScorer:
             try:
                 # Process accelerometer (magnitude + derivative)
                 processed = self.processor(accel_data)
-                print(f"[score] Processed shape: {processed.array.shape} @ {processed.sample_rate} Hz")
                 
-                # CRITICAL: Resample to 64 Hz (model requirement)
-                # The model expects data at exactly 64 Hz for the reshape to work
-                from scipy import signal
+                # Resample to model's expected sample rate (64 Hz)
                 if processed.sample_rate != self.model_sample_rate:
-                    ratio = self.model_sample_rate / processed.sample_rate
-                    n_samples_new = int(np.round(processed.array.shape[0] * ratio))
-                    resampled_array = signal.resample(processed.array, n_samples_new, axis=0)
-                    
-                    processed = Data(
-                        array=resampled_array,
-                        sample_rate=self.model_sample_rate,
-                        channel_names=processed.channel_names
-                    )
-                    print(f"[score] Resampled to {self.model_sample_rate} Hz, shape: {resampled_array.shape}")
+                    processed = processed.resample(self.model_sample_rate)
+                    print(f"[score] Resampled from {accel_data.sample_rate} Hz to {self.model_sample_rate} Hz")
                 
-                # Now set n_periods correctly for 64 Hz data
-                n_periods = int(np.floor(processed.array.shape[0] / self.model_samples_per_period))
-                self.model.n_periods = n_periods if n_periods > 0 else 1
-                
-                print(f"[score] Final data shape: {processed.array.shape}, n_periods: {self.model.n_periods}")
+                # Set number of periods
+                self.model.n_periods = int(
+                    np.floor(processed.duration.total_seconds() / self.period_duration)
+                )
 
                 preds = score(
                     data=processed,
