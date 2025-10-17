@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Polar H10 — Sleep Stage Scoring</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --accent: #22d3ee;
+      --good: #34d399;
+      --fair: #f59e0b;
+      --poor: #f87171;
+      --wake: #f59e0b;
+      --nrem: #6366f1;
+      --rem: #ec4899;
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Noto Sans;
+      background: radial-gradient(1200px 800px at 80% -10%, #1f2937 0, var(--bg) 40%);
+      color: var(--text);
+    }
+    .wrap { max-width: 1200px; margin: 32px auto; padding: 0 16px; }
+    header { display:flex; align-items:center; gap:16px; margin-bottom: 16px; }
+    h1 { font-size: clamp(22px, 3vw, 32px); line-height: 1.1; margin: 0; }
+    .tag { padding: 4px 10px; border-radius: 999px; background: #0ea5e9; color:#002233; font-weight:700; font-size:12px; letter-spacing: .04em; }
+
+    .panel { background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(0,0,0,.15)); border: 1px solid rgba(255,255,255,.06); box-shadow: 0 10px 30px rgba(0,0,0,.35); border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+    .grid { display:grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 900px){ .grid{ grid-template-columns: 1fr 1fr; } }
+
+    .controls{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    button{ appearance:none; border:1px solid rgba(255,255,255,.15); background: #111827; color: var(--text); border-radius: 12px; padding: 10px 14px; font-weight: 600; cursor: pointer; transition: .2s; }
+    button:hover{ transform: translateY(-1px); border-color: rgba(34,211,238,.5); box-shadow: 0 8px 20px rgba(34,211,238,.15); }
+    button:disabled{ opacity:.5; cursor:not-allowed; box-shadow:none; transform:none; }
+    .status { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); font-size: 13px; }
+
+    .statbox { display:flex; gap:12px; align-items: stretch; justify-content: space-between; flex-wrap: wrap; }
+    .stat { background: #0b1220; border: 1px solid rgba(255,255,255,.06); border-radius: 14px; padding: 14px 16px; flex:1; min-width: 180px; }
+    .label { color: var(--muted); font-size: 12px; letter-spacing:.05em; text-transform: uppercase; margin-bottom: 6px; }
+    .value { font-size: 24px; font-weight: 800; }
+    .value small{ font-size: 14px; font-weight: 600; color: var(--muted); }
+
+    /* Sleep Stage Display */
+    .sleep-stage-panel { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid rgba(255,255,255,.08); padding: 20px; border-radius: 16px; text-align: center; }
+    .sleep-stage-label { font-size: 14px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 12px; }
+    .sleep-stage-value { font-size: 48px; font-weight: 900; margin-bottom: 8px; transition: all 0.3s; }
+    .sleep-stage-value.wake { color: var(--wake); }
+    .sleep-stage-value.nrem { color: var(--nrem); }
+    .sleep-stage-value.rem { color: var(--rem); }
+    .sleep-confidence { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+    .confidence-bar { flex: 1; max-width: 120px; }
+    .confidence-bar .bar-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; }
+    .confidence-bar .bar-bg { background: rgba(255,255,255,.1); height: 8px; border-radius: 4px; overflow: hidden; }
+    .confidence-bar .bar-fill { height: 100%; transition: width 0.3s; }
+    .confidence-bar.wake .bar-fill { background: var(--wake); }
+    .confidence-bar.nrem .bar-fill { background: var(--nrem); }
+    .confidence-bar.rem .bar-fill { background: var(--rem); }
+
+    canvas { width: 100%; height: 180px; background: #0b1220; border:1px solid rgba(255,255,255,.06); border-radius: 12px; }
+    .tiny { font-size: 12px; color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="tag">Live Sleep Scoring</div>
+    <h1>Polar H10 → Real-time Sleep Stages</h1>
+  </header>
+
+  <!-- Connection Panel -->
+  <div class="panel">
+    <div class="controls">
+      <button id="connectBtn">🔗 Connect H10</button>
+      <button id="disconnectBtn" disabled>🔌 Disconnect</button>
+      <button id="startRecBtn" disabled>⏺️ Start Recording</button>
+      <button id="stopRecBtn" disabled>⏹️ Stop Recording</button>
+      <label class="tiny" style="display:flex;align-items:center;gap:6px">
+        <span>Flush every</span>
+        <input id="flushSec" type="number" min="1" value="1" style="width:64px; background:#111827; color:var(--text); border:1px solid rgba(255,255,255,.15); border-radius:8px; padding:6px 8px;" />
+        <span>s</span>
+      </label>
+      <div class="status" id="status">Checking support…</div>
+    </div>
+  </div>
+
+  <!-- Sleep Stage Display -->
+  <div class="panel sleep-stage-panel">
+    <div class="sleep-stage-label">Current Sleep Stage</div>
+    <div class="sleep-stage-value" id="sleepStage">—</div>
+    <div class="tiny" id="sleepEpochInfo">Collecting data...</div>
+    <div style="margin: 12px 0;">
+      <div style="background: rgba(255,255,255,0.1); height: 8px; border-radius: 4px; overflow: hidden;">
+        <div id="progressBar" style="background: linear-gradient(90deg, #22d3ee, #6366f1); height: 100%; width: 0%; transition: width 0.3s;"></div>
+      </div>
+      <div class="tiny" style="margin-top: 4px; text-align: center;" id="progressText">0%</div>
+    </div>
+    <div class="sleep-confidence" id="sleepConfidence"></div>
+  </div>
+
+  <!-- Stats Grid -->
+  <div class="panel">
+    <div class="statbox">
+      <div class="stat">
+        <div class="label">Acceleration</div>
+        <div class="value" id="accVal">— <small>g</small></div>
+      </div>
+        <div class="stat">
+        <div class="label">Data Points</div>
+        <div class="value" id="dataCountVal">0 <small>samples</small></div>
+      </div>
+      <div class="stat">
+        <div class="label">Collection Time</div>
+        <div class="value" id="collectionTimeVal">0 <small>min</small></div>
+      </div>
+      <div class="stat">
+        <div class="label">Data Rate</div>
+        <div class="value" id="dataRateVal">0 <small>Hz</small></div>
+      </div>
+      <div class="stat">
+        <div class="label">Backend Status</div>
+        <div class="value" id="backendStatus"><small>Checking...</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="panel">
+    <div class="grid">
+      <div>
+        <div class="label">Accelerometry (X axis)</div>
+        <canvas id="accxCanvas" width="640" height="180"></canvas>
+      </div>
+      <div>
+        <div class="label">Accelerometry (Y axis)</div>
+        <canvas id="accyCanvas" width="640" height="180"></canvas>
+      </div>
+      <div>
+        <div class="label">Accelerometry (Z axis)</div>
+        <canvas id="acczCanvas" width="640" height="180"></canvas>
+      </div>
+      <div>
+        <div class="label">Accelerometry (magnitude)</div>
+        <canvas id="accmCanvas" width="640" height="180"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ========== Configuration ==========
+
+// Dynamic backend URL: ?backend=http://IP:5000 overrides, otherwise:
+// - if hosted on somehost, use http://somehost:5000
+// - else default to http://127.0.0.1:5000
+const urlParamBackend = new URLSearchParams(location.search).get('backend');
+const BACKEND_URL = urlParamBackend ||
+  ((location.hostname && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1')
+    ? `http://${location.hostname}:5000`
+    : 'http://127.0.0.1:5000');
+
+const HR_SERVICE_UUID = 0x180D;
+const HR_MEAS_UUID = 0x2A37;
+const PMD_SERVICE_UUID = 'fb005c80-02e7-f387-1cad-8acd2d8df0c8';
+const PMD_CHAR1_UUID = 'fb005c81-02e7-f387-1cad-8acd2d8df0c8';
+const PMD_CHAR2_UUID = 'fb005c82-02e7-f387-1cad-8acd2d8df0c8';
+const ACC_WRITE = new Uint8Array([0x02, 0x02, 0x00, 0x01, 0xC8, 0x00, 0x01, 0x01, 0x10, 0x00, 0x02, 0x01, 0x08, 0x00]);
+
+const VIS_WINDOW_SEC = 60;
+const SEND_BATCH_SIZE = 200; // Send samples in batches
+const SEND_INTERVAL_MS = 1000; // Send every second
+
+// ========== State ==========
+let device = null;
+let server = null;
+let dataChar = null;
+let accBuffer = [];
+let startTime = null;
+let lastDataCount = 0;
+let lastDataTime = 0;
+let rawDataCount = 0;
+let updateTimer = null;
+let uiTimer = null;
+
+// Recording
+let recording = false;
+let recHandle = null;
+let recWriter = null;
+let recBuffer = '';
+let recordedSamples = 0;
+let recFlushEveryMs = 1000;
+let lastFlush = 0;
+
+// Backend communication
+let pendingSamples = [];
+let backendAvailable = false; // means "server reachable"
+let modelReady = false;
+let lastBackendSend = 0;
+let currentSleepStage = null;
+
+// ========== UI Elements ==========
+const statusEl = document.getElementById('status');
+const accVal = document.getElementById('accVal');
+const dataCountVal = document.getElementById('dataCountVal');
+const collectionTimeVal = document.getElementById('collectionTimeVal');
+const dataRateVal = document.getElementById('dataRateVal');
+const backendStatus = document.getElementById('backendStatus');
+const sleepStage = document.getElementById('sleepStage');
+const sleepEpochInfo = document.getElementById('sleepEpochInfo');
+const sleepConfidence = document.getElementById('sleepConfidence');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
+
+const accxCanvas = document.getElementById('accxCanvas');
+const accyCanvas = document.getElementById('accyCanvas');
+const acczCanvas = document.getElementById('acczCanvas');
+const accmCanvas = document.getElementById('accmCanvas');
+
+const accxctx = accxCanvas.getContext('2d');
+const accyctx = accyCanvas.getContext('2d');
+const acczctx = acczCanvas.getContext('2d');
+const accmctx = accmCanvas.getContext('2d');
+
+// ========== Backend Communication ==========
+async function checkBackend() {
+  try {
+    const resp = await fetch(`${BACKEND_URL}/health`, { method: 'GET' });
+    const data = await resp.json();
+
+    // Reachable if /health returns status ok
+    const serverReachable = data && data.status === 'ok';
+    backendAvailable = serverReachable;
+    modelReady = !!(data && data.model_loaded);
+
+    backendStatus.innerHTML = serverReachable
+      ? (modelReady
+          ? '<small style="color:var(--good)">✓ Connected (model ready)</small>'
+          : '<small style="color:var(--fair)">△ Connected (model not loaded)</small>')
+      : '<small style="color:var(--poor)">✗ Offline</small>';
+
+    return serverReachable;
+  } catch (e) {
+    backendAvailable = false;
+    modelReady = false;
+    backendStatus.innerHTML = '<small style="color:var(--poor)">✗ Offline</small>';
+    return false;
+  }
+}
+
+async function sendSamplesToBackend() {
+  // Only gate on "server reachable"
+  if (!backendAvailable || pendingSamples.length === 0) return;
+
+  const now = performance.now();
+  if (now - lastBackendSend < SEND_INTERVAL_MS && pendingSamples.length < SEND_BATCH_SIZE * 2) return;
+
+  const toSend = pendingSamples.splice(0, Math.min(pendingSamples.length, SEND_BATCH_SIZE * 3));
+  lastBackendSend = now;
+
+  try {
+    const resp = await fetch(`${BACKEND_URL}/api/samples`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ samples: toSend })
+    });
+
+    const data = await resp.json();
+
+    // Update progress UI if backend returns collection status
+    if (data && data.status && data.status.progress != null) {
+      const p = Math.max(0, Math.min(100, data.status.progress));
+      progressBar.style.width = `${p.toFixed(0)}%`;
+      progressText.textContent = `${p.toFixed(0)}%`;
+      if (!data.prediction && data.status.required_duration_s) {
+        sleepEpochInfo.textContent = `Collecting data... ${p.toFixed(0)}% (${(data.status.duration_s || 0).toFixed(0)}s / ${data.status.required_duration_s.toFixed(0)}s)`;
+      }
+    }
+
+    if (data && data.prediction) {
+      updateSleepStageDisplay(data.prediction);
+    }
+  } catch (e) {
+    // Don't flip backendAvailable here; only /health decides online/offline.
+    console.warn('Failed to send samples to backend:', e);
+  }
+}
+
+async function fetchLatestPrediction() {
+  if (!backendAvailable) return;
+
+  try {
+    const resp = await fetch(`${BACKEND_URL}/api/latest`, { method: 'GET' });
+    const data = await resp.json();
+
+    if (data && data.status === 'ok' && data.prediction) {
+      updateSleepStageDisplay(data.prediction);
+    } else {
+      // Update progress from collection_status if available
+      if (data && data.collection_status && data.collection_status.progress != null) {
+        const cs = data.collection_status;
+        const p = Math.max(0, Math.min(100, cs.progress));
+        progressBar.style.width = `${p.toFixed(0)}%`;
+        progressText.textContent = `${p.toFixed(0)}%`;
+      }
+      if (data && data.message) {
+        sleepEpochInfo.textContent = data.message;
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to fetch prediction:', e);
+  }
+}
+
+function updateSleepStageDisplay(pred) {
+  if (!pred) return;
+  currentSleepStage = pred;
+
+  // Update main stage label
+  const stage = pred.label || '—';
+  sleepStage.textContent = stage;
+  sleepStage.className = 'sleep-stage-value ' + stage.toLowerCase();
+
+  // Update epoch info
+  const duration = (pred.epoch_end ?? 0) - (pred.epoch_start ?? 0);
+  const ts = pred.timestamp ? new Date(pred.timestamp * 1000).toLocaleTimeString() : '';
+  sleepEpochInfo.textContent = `Epoch: ${Math.max(0, duration).toFixed(0)}s | Updated: ${ts}`;
+
+  // Update confidence bars
+  const probs = pred.probabilities || {};
+  sleepConfidence.innerHTML = '';
+  for (const [label, prob] of Object.entries(probs)) {
+    const barDiv = document.createElement('div');
+    barDiv.className = `confidence-bar ${label.toLowerCase()}`;
+    barDiv.innerHTML = `
+      <div class="bar-label">${label}</div>
+      <div class="bar-bg">
+        <div class="bar-fill" style="width: ${(Number(prob) * 100).toFixed(0)}%"></div>
+      </div>
+    `;
+    sleepConfidence.appendChild(barDiv);
+  }
+}
+
+// ========== Recording Functions ==========
+async function openWriter(){
+  recWriter = await recHandle.createWritable({ keepExistingData:true });
+  const f = await recHandle.getFile();
+  await recWriter.seek(f.size);
+}
+
+async function startRecording(){
+  if (recording) return;
+  if (!server || !dataChar){ alert('Connect to the H10 first.'); return; }
+
+  try{
+    recFlushEveryMs = Math.max(1, Number(document.getElementById('flushSec').value || 1)) * 1000;
+
+    if ('showSaveFilePicker' in window){
+      recHandle = await window.showSaveFilePicker({
+        suggestedName: `polar_h10_sleep_${new Date().toISOString().replace(/[:.]/g,'-')}.csv`,
+        types: [{ description: 'CSV', accept: { 'text/csv': ['.csv'] } }]
+      });
+      await openWriter();
+      const existing = await recHandle.getFile();
+      if (existing.size === 0){
+        await recWriter.write('timestamp,x,y,z,magnitude,click,sleep_stage\n');
+      }
+    } else {
+      recBuffer = 'timestamp,x,y,z,magnitude,click,sleep_stage\n';
+    }
+
+    recording = true;
+    recordedSamples = 0;
+    lastFlush = performance.now();
+    startRecBtn.disabled = true;
+    stopRecBtn.disabled = false;
+    setStatus('Recording… with sleep stages');
+  } catch(err){
+    console.error('startRecording failed:', err);
+    setStatus('Recording not started: ' + err.message);
+  }
+}
+
+async function stopRecording(){
+  if (!recording) return;
+  try{
+    await flushRecording(true);
+    if (recWriter){ await recWriter.close(); recWriter = null; }
+    recording = false;
+    startRecBtn.disabled = false;
+    stopRecBtn.disabled = true;
+    setStatus(`Recording stopped. ${recordedSamples} samples saved.`);
+  } catch(err){
+    console.error('stopRecording failed:', err);
+    setStatus('Error stopping recording: ' + err.message);
+  }
+}
+
+async function flushRecording(force=false){
+  const now = performance.now();
+  if (!recording) return;
+  if (!force && (now - lastFlush < recFlushEveryMs) && recBuffer.length < 1_000_000) return;
+  lastFlush = now;
+  if (recWriter){
+    if (recBuffer.length){ await recWriter.write(recBuffer); recBuffer = ''; }
+  }
+}
+
+// ========== Parsing & Processing ==========
+function parseAcc(dataView){
+  const samples = [];
+  if (dataView.byteLength < 10) return samples;
+  const accuracy = dataView.getUint8(9);
+  let sampleSize = accuracy === 0x00 ? 3 : 6;
+  let offset = 10;
+
+  for (let i = offset; i + sampleSize - 1 < dataView.byteLength; i += sampleSize){
+    let x,y,z;
+    if (sampleSize === 3){
+      x = dataView.getInt8(i) / 1000.0;
+      y = dataView.getInt8(i+1) / 1000.0;
+      z = dataView.getInt8(i+2) / 1000.0;
+    } else {
+      x = dataView.getInt16(i, true) / 1000.0;
+      y = dataView.getInt16(i+2, true) / 1000.0;
+      z = dataView.getInt16(i+4, true) / 1000.0;
+    }
+    const m = Math.sqrt(x*x + y*y + z*z);
+    samples.push({x,y,z,m});
+  }
+  return samples;
+}
+
+function parsePMD(dataView){
+  if (dataView.byteLength < 9) return null;
+  const frametype = dataView.getUint8(0);
+  const timestamp = dataView.getBigUint64(1, true);
+  if (frametype === 0x02 || frametype === 0x00){
+    const accSamples = parseAcc(dataView);
+    if (accSamples.length) return {timestamp, accSamples};
+  }
+  return null;
+}
+
+function keepWindow(){
+  while (accBuffer.length && accBuffer[0].t < accBuffer[accBuffer.length-1].t - VIS_WINDOW_SEC){
+    accBuffer.shift();
+  }
+}
+
+function onPMD(event){
+  try {
+    const dv = event.target.value;
+    rawDataCount++;
+    const data = parsePMD(dv);
+    if (!data) return;
+
+    const tNow = Number(data.timestamp) / 1e9;
+    const n = data.accSamples.length;
+    const TARGET_FS = 200;
+
+    for (let i = 0; i < n; i++){
+      const s = data.accSamples[i];
+      const t = tNow - (n - i - 1) / TARGET_FS;
+
+      accBuffer.push({ t, x:s.x, y:s.y, z:s.z, m:s.m, click:0 });
+
+      // Queue for backend
+      pendingSamples.push({ t, x:s.x, y:s.y, z:s.z });
+
+      // Add to recording with current sleep stage
+      if (recording){
+        const sleepLabel = currentSleepStage ? currentSleepStage.label : '';
+        recBuffer += `${t},${s.x},${s.y},${s.z},${s.m},0,${sleepLabel}\n`;
+        recordedSamples++;
+      }
+    }
+
+    flushRecording();
+    sendSamplesToBackend();
+  } catch (err) {
+    console.error('onPMD processing error:', err);
+  }
+}
+
+// ========== Visualization ==========
+function drawSeries(ctx, data){
+  const w = ctx.canvas.width, h = ctx.canvas.height;
+  ctx.clearRect(0,0,w,h);
+  ctx.save();
+  ctx.translate(50,10);
+  const iw = w - 60, ih = h - 40;
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  for (let i=0;i<5;i++){
+    const y = i*(ih/4);
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(iw,y); ctx.stroke();
+  }
+
+  if (!data || data.x.length<2){
+    ctx.restore(); return;
+  }
+
+  const x = data.x, y = data.y;
+  const xmin = Math.min(...x), xmax = Math.max(...x);
+  const ymin = Math.min(...y), ymax = Math.max(...y);
+
+  const sx = v => (v - xmin) / (xmax - xmin + 1e-9) * iw;
+  const sy = v => ih - (v - ymin) / (ymax - ymin + 1e-9) * ih;
+
+  // Series line
+  ctx.strokeStyle = 'rgba(34,211,238,0.9)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(sx(x[0]), sy(y[0]));
+  for (let i=1;i<x.length;i++) ctx.lineTo(sx(x[i]), sy(y[i]));
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function updateUI(){
+  if (accBuffer.length > 0){
+    const latest = accBuffer[accBuffer.length - 1];
+    accVal.innerHTML = latest.m.toFixed(2) + ' <small>g</small>';
+  } else {
+    accVal.innerHTML = '— <small>g</small>';
+  }
+
+  dataCountVal.innerHTML = accBuffer.length + ' <small>samples</small>';
+
+  if (startTime) {
+    const elapsed = (Date.now() / 1000) - startTime;
+    const minutes = Math.floor(elapsed / 60);
+    collectionTimeVal.innerHTML = minutes + ' <small>min</small>';
+  } else {
+    collectionTimeVal.innerHTML = '0 <small>min</small>';
+  }
+
+  const currentTime = Date.now() / 1000;
+  if (lastDataTime > 0 && currentTime > lastDataTime) {
+    const timeDiff = currentTime - lastDataTime;
+    const dataDiff = accBuffer.length - lastDataCount;
+    const dataRate = dataDiff / timeDiff;
+    dataRateVal.innerHTML = dataRate.toFixed(1) + ' <small>Hz</small>';
+  } else {
+    dataRateVal.innerHTML = '0.0 <small>Hz</small>';
+  }
+  lastDataCount = accBuffer.length;
+  lastDataTime = currentTime;
+
+  // Draw charts
+  const t = accBuffer.map(p => p.t);
+  if (t.length >= 2){
+    drawSeries(accxctx, { x:t, y:accBuffer.map(p=>p.x) });
+    drawSeries(accyctx, { x:t, y:accBuffer.map(p=>p.y) });
+    drawSeries(acczctx, { x:t, y:accBuffer.map(p=>p.z) });
+    drawSeries(accmctx, { x:t, y:accBuffer.map(p=>p.m) });
+  }
+}
+
+// ========== BLE Connection ==========
+async function connect(){
+  try{
+    setStatus('Requesting device…');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'Polar H10' }, { namePrefix: 'Polar' }],
+      optionalServices: [HR_SERVICE_UUID, PMD_SERVICE_UUID],
+      acceptAllDevices: false
+    });
+
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    setStatus('Connecting…');
+
+    const connectPromise = device.gatt.connect();
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timeout')), 10000)
+    );
+    server = await Promise.race([connectPromise, timeoutPromise]);
+
+    setStatus('Getting services…');
+
+    const pmdSvc = await server.getPrimaryService(PMD_SERVICE_UUID);
+    const ctrlChar = await pmdSvc.getCharacteristic(PMD_CHAR1_UUID);
+
+    setStatus('Starting accelerometer data stream…');
+
+    await ctrlChar.writeValueWithResponse(ACC_WRITE);
+    await new Promise(r => setTimeout(r, 1000));
+
+    dataChar = await pmdSvc.getCharacteristic(PMD_CHAR2_UUID);
+    dataChar.addEventListener('characteristicvaluechanged', onPMD);
+    await dataChar.startNotifications();
+
+    setStatus('Connected. Streaming data + sleep scoring…');
+    connectBtn.disabled = true;
+    disconnectBtn.disabled = false;
+    startRecBtn.disabled = false;
+    startTime = Date.now() / 1000;
+
+    if (updateTimer) clearInterval(updateTimer);
+    if (uiTimer) clearInterval(uiTimer);
+    updateTimer = setInterval(processStep, 1000);
+    uiTimer = setInterval(updateUI, 100);
+
+  } catch(err){
+    console.error(err);
+    setStatus('Error: ' + err.message);
+  }
+}
+
+function onDisconnected(){
+  setStatus('Disconnected');
+  connectBtn.disabled = false;
+  disconnectBtn.disabled = true;
+  startRecBtn.disabled = true;
+  stopRecBtn.disabled = true;
+  try{ dataChar && dataChar.stopNotifications(); }catch{}
+  if (updateTimer) clearInterval(updateTimer);
+  if (uiTimer) clearInterval(uiTimer);
+}
+
+async function disconnect(){
+  try{
+    if (!device) return;
+    if (dataChar){ try{ await dataChar.stopNotifications(); } catch(e){} }
+    if (device.gatt.connected) device.gatt.disconnect();
+  } catch(err){ console.error(err); }
+}
+
+function processStep(){
+  keepWindow();
+  fetchLatestPrediction();
+}
+
+function setStatus(msg){ statusEl.textContent = msg; }
+
+// ========== Event Handlers ==========
+const connectBtn = document.getElementById('connectBtn');
+const disconnectBtn = document.getElementById('disconnectBtn');
+const startRecBtn = document.getElementById('startRecBtn');
+const stopRecBtn = document.getElementById('stopRecBtn');
+
+connectBtn.addEventListener('click', connect);
+disconnectBtn.addEventListener('click', disconnect);
+startRecBtn.addEventListener('click', startRecording);
+stopRecBtn.addEventListener('click', stopRecording);
+
+// ========== Initialization ==========
+(function init(){
+  const isSecure = window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost';
+  if (!('bluetooth' in navigator) || !isSecure){
+    setStatus('Web Bluetooth requires Chrome/Edge in a secure context (HTTPS or localhost).');
+    connectBtn.disabled = true;
+    return;
+  }
+
+  setStatus('Ready. Checking backend...');
+  checkBackend().then(reachable => {
+    if (reachable) {
+      setStatus(modelReady
+        ? 'Ready. Backend online (model ready). Click Connect H10.'
+        : 'Ready. Backend online (loading/absent model). Click Connect H10.');
+    } else {
+      setStatus('Ready. Backend offline (run server.py). Click Connect H10.');
+    }
+  });
+
+  // Periodic backend check
+  setInterval(checkBackend, 5000);
+})();
+</script>
+</body>
+</html>

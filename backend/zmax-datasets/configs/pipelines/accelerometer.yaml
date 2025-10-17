@@ -1,0 +1,35 @@
+name: accelerometer_processing
+description: "Accelerometer processing pipeline"
+
+steps:
+  - input_data_types: ["ACCELEROMETER_X", "ACCELEROMETER_Y", "ACCELEROMETER_Z"]
+    output_data_types: ["ACCELEROMETER_X_resampled", "ACCELEROMETER_Y_resampled", "ACCELEROMETER_Z_resampled"]
+    transforms:
+      - transform: Resample
+        config:
+          new_sample_rate: 128.0
+
+  - input_data_types: ["ACCELEROMETER_X_resampled", "ACCELEROMETER_Y_resampled", "ACCELEROMETER_Z_resampled"]
+    output_data_types: ["ACCELEROMETER_X_dynamic", "ACCELEROMETER_Y_dynamic", "ACCELEROMETER_Z_dynamic"]
+    transforms:
+      - transform: FIRFilter
+        config:
+          low_cutoff: 0.25
+          high_cutoff: 15.0
+  
+  - input_data_types: ["ACCELEROMETER_X_dynamic", "ACCELEROMETER_Y_dynamic", "ACCELEROMETER_Z_dynamic"]
+    output_data_types: ["ACCELEROMETER_magnitude", "ACCELEROMETER_magnitude_derivative"]
+    transforms:
+      - transform: ProcessDynamicAccelerometer
+
+  - input_data_types: ["ACCELEROMETER_X_resampled", "ACCELEROMETER_Y_resampled", "ACCELEROMETER_Z_resampled"]
+    output_data_types: ["ACCELEROMETER_X_gravity", "ACCELEROMETER_Y_gravity", "ACCELEROMETER_Z_gravity"]
+    transforms:
+      - transform: FIRFilter
+        config:
+          high_cutoff: 0.25
+
+  - input_data_types: ["ACCELEROMETER_X_gravity", "ACCELEROMETER_Y_gravity", "ACCELEROMETER_Z_gravity"]
+    output_data_types: ["ACCELEROMETER_pitch", "ACCELEROMETER_roll"]
+    transforms:
+      - transform: ProcessGravityAccelerometer
